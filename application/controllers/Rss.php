@@ -5,7 +5,8 @@ class Rss extends CI_Controller {
 
     public function __construct() {
         parent::__construct();
-        $this->load->model('Rss_model');
+        // IMPORTANT: class name is Rss_model, so load it with same case
+        $this->load->model('Rss_model');   // 👈 changed from 'rss_model' to 'Rss_model'
         $this->load->helper(['url', 'form']);
     }
 
@@ -56,19 +57,35 @@ class Rss extends CI_Controller {
             return strtotime($b['pub_date']) - strtotime($a['pub_date']);
         });
 
-        // Save to DB with priority
+    
+       // Save to DB with priority
         $priority = 1;
         foreach ($items as $item) {
-            $char_count = mb_strlen($item['title'] . ' ' . $item['content'], 'UTF-8');
+            // Combine title + content
+            $text = $item['title'] . ' ' . $item['content'];
+
+            // 1) Remove HTML tags
+            $text = strip_tags($text);
+
+            // 2) Decode HTML entities (&amp;, &nbsp;, etc.)
+            $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+            // 3) Normalize whitespace (multiple spaces/newlines -> single space)
+            $text = preg_replace('/\s+/u', ' ', $text);
+            $text = trim($text);
+
+            // 4) Count characters (handles emoji correctly)
+            $char_count = mb_strlen($text, 'UTF-8');
 
             $this->Rss_model->insert_post([
                 'title'      => $item['title'],
-                'content'    => $item['content'],
+                'content'    => $item['content'],   // keep original HTML content
                 'char_count' => $char_count,
                 'pub_date'   => $item['pub_date'],
                 'priority'   => $priority++
             ]);
-        }
+}
+
 
         redirect('rss/posts');
     }
@@ -77,6 +94,7 @@ class Rss extends CI_Controller {
         $limit  = 10;
         $page   = max(1, (int)$page);
         $offset = ($page - 1) * $limit;
+
         $total_posts          = $this->Rss_model->count_posts();
         $data['posts']        = $this->Rss_model->get_posts($limit, $offset);
         $data['platforms']    = $this->Rss_model->get_platforms();
@@ -86,10 +104,9 @@ class Rss extends CI_Controller {
         // attach selected platform IDs to each post
         foreach ($data['posts'] as $p) {
             $p->platform_ids = $this->Rss_model->get_post_platform_ids($p->id);
-}
+        }
 
-$this->load->view('post_list', $data);
-
+        $this->load->view('post_list', $data);
     }
 
     public function update_priority() {
@@ -136,27 +153,25 @@ $this->load->view('post_list', $data);
     }
 
     public function social_dashboard() {
-    // can be 'all' or a specific platform id
-    $platform = $this->input->get('platform');
+        // can be 'all' or a specific platform id
+        $platform = $this->input->get('platform');
 
-    if ($platform && $platform !== 'all') {
-        $platform_id = (int)$platform;
-    } else {
-        $platform_id = null; // null => all posts
-        $platform    = 'all';
+        if ($platform && $platform !== 'all') {
+            $platform_id = (int)$platform;
+        } else {
+            $platform_id = null; // null => all posts
+            $platform    = 'all';
+        }
+
+        $data['platforms'] = $this->Rss_model->get_platforms();
+        $data['posts']     = $this->Rss_model->get_posts_by_platform($platform_id);
+        $data['selected']  = $platform;
+
+        // attach all platform ids for each post so we can display badges
+        foreach ($data['posts'] as $p) {
+            $p->platform_ids = $this->Rss_model->get_post_platform_ids($p->id);
+        }
+
+        $this->load->view('social_dashboard', $data);
     }
-
-    $data['platforms'] = $this->Rss_model->get_platforms();
-    $data['posts']     = $this->Rss_model->get_posts_by_platform($platform_id);
-    $data['selected']  = $platform;
-
-    // attach all platform ids for each post so we can display badges
-    foreach ($data['posts'] as $p) {
-        $p->platform_ids = $this->Rss_model->get_post_platform_ids($p->id);
-    }
-
-    $this->load->view('social_dashboard', $data);
-}
-
-
 }
